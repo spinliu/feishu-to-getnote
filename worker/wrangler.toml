@@ -4,7 +4,10 @@ compatibility_date = "2025-09-01"
 
 # KV: session_key -> { access_token, refresh_token, expires_at, refresh_expires_at }
 # 也用同一个 namespace 暂存 OAuth state（10 分钟 TTL）
-# 部署前：wrangler kv namespace create SESSIONS，把返回的 id 填到下面
+#
+# 下面这个 id 是 maintainer (spin) 账号下的 namespace。团队成员不要自己 `wrangler deploy`——
+# 用 maintainer 部署的 Worker URL（见 DEPLOY.md）即可。
+# 想 fork 自部署的人：先 `wrangler kv namespace create SESSIONS`，把返回的新 id 替换下面这行。
 [[kv_namespaces]]
 binding = "SESSIONS"
 id = "6ce9f321682541cbaff077252746ad24"
