@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Feishu → Get 笔记",
+  "version": "0.1.0",
+  "description": "一键把飞书文档导入到 Get 笔记。",
+  "permissions": ["storage", "identity", "activeTab"],
+  "host_permissions": [
+    "https://*.feishu.cn/*",
+    "https://*.larksuite.com/*",
+    "https://openapi.biji.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "导入到 Get 笔记",
+    "default_icon": {
+      "16": "icons/icon128.png",
+      "48": "icons/icon128.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon128.png",
+    "48": "icons/icon128.png",
+    "128": "icons/icon128.png"
+  }
+}

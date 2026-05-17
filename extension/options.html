@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>Feishu → Get 笔记 · 设置</title>
+  <style>
+    body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+           max-width: 640px; margin: 32px auto; padding: 0 20px; color: #222; }
+    h1 { font-size: 18px; margin: 0 0 24px; }
+    h2 { font-size: 14px; margin: 28px 0 8px; color: #555; font-weight: 600; }
+    label { display: block; margin: 12px 0 4px; color: #555; font-size: 12px; }
+    input[type=text], input[type=password] {
+      width: 100%; padding: 8px 10px; font: 13px monospace;
+      border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
+    }
+    button { padding: 8px 16px; margin-top: 12px; border: 0; border-radius: 4px;
+             background: #0077ff; color: white; cursor: pointer; font-size: 13px; }
+    button.secondary { background: #eee; color: #333; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .status { margin-top: 8px; padding: 8px 12px; border-radius: 4px; font-size: 12px; }
+    .status.ok  { background: #e6f7e6; color: #1a6b1a; }
+    .status.err { background: #fce8e8; color: #a33; }
+    .hint { color: #888; font-size: 12px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Feishu → Get 笔记 · 设置</h1>
+
+  <h2>1. Worker 代理地址</h2>
+  <label>Cloudflare Worker URL（一次性配，团队共用）</label>
+  <input type="text" id="worker" placeholder="https://lark-doc-proxy.xxx.workers.dev">
+  <div class="hint">由部署 Worker 的人提供。形如 <code>https://lark-doc-proxy.xxx.workers.dev</code>，末尾不要带斜杠。</div>
+
+  <h2>2. 飞书登录</h2>
+  <button id="login">登录飞书</button>
+  <button id="logout" class="secondary">退出登录</button>
+  <div id="auth-status" class="status">未登录</div>
+
+  <h2>3. Get 笔记 API Key</h2>
+  <label>API Key（gk_live_xxx）</label>
+  <input type="password" id="getKey" placeholder="gk_live_xxx">
+  <label>Client ID（cli_xxx）</label>
+  <input type="text" id="getCid" placeholder="cli_xxx">
+  <div class="hint">在 <a href="https://www.biji.com/openapi" target="_blank">Get 笔记开放平台</a> 创建应用获取。仅存于本浏览器 chrome.storage.local。</div>
+
+  <div style="margin-top: 20px">
+    <button id="save">保存</button>
+    <span id="save-status" class="status" style="display:none"></span>
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

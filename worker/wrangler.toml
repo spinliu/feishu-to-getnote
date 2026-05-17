@@ -1,0 +1,22 @@
+name = "lark-doc-proxy"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# KV: session_key -> { access_token, refresh_token, expires_at, refresh_expires_at }
+# 也用同一个 namespace 暂存 OAuth state（10 分钟 TTL）
+# 部署前：wrangler kv namespace create SESSIONS，把返回的 id 填到下面
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "6ce9f321682541cbaff077252746ad24"
+
+# 不是 secret 的配置项
+[vars]
+LARK_OAUTH_BASE = "https://accounts.feishu.cn"
+LARK_API_BASE = "https://open.feishu.cn"
+# OAuth 成功后回跳的 Chrome 扩展回调 host 白名单（防滥用）
+# 部署时改成你的 extension id：https://<extid>.chromiumapp.org/
+ALLOWED_REDIRECT_PREFIX = "https://"
+
+# Secrets（用 wrangler secret put 设置，别写在这里）：
+# - LARK_APP_ID
+# - LARK_APP_SECRET
