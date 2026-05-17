@@ -1,6 +1,14 @@
 # feishu-getnote
 
-一键把飞书文档导入到 Get 笔记的 Chrome 插件。
+> **5 秒看懂**：浏览器里看任意飞书文档 → 点一下插件图标 → 文档 markdown 自动进你的 Get 笔记。
+>
+> - 📖 **团队成员看这里**：[安装使用指南](docs/install-guide.md)
+> - 🔧 **想了解怎么造的**：[工程回顾](docs/engineering-retro.md)
+> - 🚀 **部署 / 维护 Worker**：[DEPLOY.md](DEPLOY.md)
+
+---
+
+一键把飞书文档导入到 Get 笔记的 Chrome 插件。OAuth 走 Cloudflare Worker 代理藏 app_secret，blocks 在前端转 markdown 后直灌 Get 笔记 OpenAPI。
 
 ## 架构
 
