@@ -43,6 +43,30 @@
   <input type="text" id="getCid" placeholder="cli_xxx">
   <div class="hint">在 <a href="https://www.biji.com/openapi" target="_blank">Get 笔记开放平台</a> 创建应用获取。仅存于本浏览器 chrome.storage.local。</div>
 
+  <h2>4. 本地文件夹（可选）</h2>
+  <div style="margin-bottom: 8px;">
+    <button id="pickVault" class="secondary">选择文件夹</button>
+    <button id="clearVault" class="secondary">清除</button>
+  </div>
+  <div id="vault-status" class="status">未选择</div>
+
+  <label>子目录（可选）</label>
+  <input type="text" id="subdir" placeholder="例如 from-feishu/">
+  <div class="hint">写到所选文件夹下的子目录，留空 = 写入根目录。</div>
+
+  <label>默认行为</label>
+  <div style="margin-top: 6px;">
+    <label style="display:block; margin: 4px 0; color: #333;">
+      <input type="radio" name="mode" value="getnote-only"> 仅 Get 笔记（默认）
+    </label>
+    <label style="display:block; margin: 4px 0; color: #333;">
+      <input type="radio" name="mode" value="both"> Get 笔记 + 本地文件夹 双写
+    </label>
+    <label style="display:block; margin: 4px 0; color: #333;">
+      <input type="radio" name="mode" value="ask"> 每次在弹窗手动勾选
+    </label>
+  </div>
+
   <div style="margin-top: 20px">
     <button id="save">保存</button>
     <span id="save-status" class="status" style="display:none"></span>

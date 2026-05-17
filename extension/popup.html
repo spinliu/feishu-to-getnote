@@ -26,7 +26,12 @@
     <div class="label">当前页面</div>
     <div class="url" id="url">--</div>
   </div>
-  <button id="go">导入到 Get 笔记</button>
+  <div id="localBox" style="display:none; margin-bottom: 8px;">
+    <label style="font-size: 12px; color: #555; cursor: pointer;">
+      <input type="checkbox" id="writeLocal"> 同时写入本地文件夹
+    </label>
+  </div>
+  <button id="go">导入</button>
   <div id="status" class="status" style="display:none"></div>
   <a class="opt" href="#" id="openOpts">设置</a>
   <script type="module" src="popup.js"></script>
