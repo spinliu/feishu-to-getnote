@@ -14,6 +14,7 @@
     button { width: 100%; padding: 10px; border: 0; border-radius: 4px;
              background: #0077ff; color: white; cursor: pointer; font-size: 14px; margin-top: 8px; }
     button.secondary { background: #f0f0f0; color: #222; }
+    button.ghost { background: transparent; color: #0077ff; border: 1px solid #cfe2ff; }
     button:disabled { opacity: 0.5; cursor: default; }
     .status { white-space: pre-wrap; margin-top: 12px; padding: 8px 10px; border-radius: 4px; font-size: 12px; }
     .status.ok  { background: #e6f7e6; color: #1a6b1a; }
@@ -33,6 +34,8 @@
   <button id="saveGet">保存到 Get 笔记</button>
   <button id="saveFeishu" class="secondary">保存为飞书文档</button>
   <button id="saveBoth" class="secondary">飞书 + Get 都保存</button>
+  <button id="batchGet" class="secondary" style="display:none">批量保存窗口网页到 Get</button>
+  <button id="forceSave" class="ghost" style="display:none">仍然再次保存</button>
   <div id="status" class="status" style="display:none"></div>
   <a class="opt" href="#" id="openOpts">设置</a>
   <script type="module" src="popup.js"></script>

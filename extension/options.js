@@ -1,4 +1,5 @@
 import { getConfig, loginFeishu, probeFeishuSession } from './lib/auth-manager.js';
+import { clearSaveLogs, listSaveLogs } from './lib/save-state.js';
 
 const $ = id => document.getElementById(id);
 
@@ -8,6 +9,7 @@ async function load() {
   $('getKey').value = cfg.getKey || '';
   $('getCid').value = cfg.getCid || '';
   renderAuth(cfg.feishuSession);
+  await renderLogs();
 }
 
 function renderAuth(session) {
@@ -75,8 +77,59 @@ async function testWorker() {
   }
 }
 
+async function renderLogs() {
+  const logs = await listSaveLogs();
+  const el = $('logs');
+  if (!logs.length) {
+    el.innerHTML = '<div class="log">暂无记录</div>';
+    return;
+  }
+  el.innerHTML = logs.slice(0, 20).map(log => {
+    const level = log.level === 'error' ? 'error' : 'success';
+    const status = log.level === 'error' ? '失败' : '成功';
+    const title = escapeHtml(log.title || log.sourceUrl || '(无标题)');
+    const destination = escapeHtml(destinationLabel(log.destination));
+    const message = escapeHtml(log.message || '');
+    const url = escapeHtml(log.sourceUrl || '');
+    return `
+      <div class="log ${level}">
+        <div class="log-title">${status} · ${destination} · ${title}</div>
+        <div class="log-meta">${formatTime(log.at)}${message ? ' · ' + message : ''}</div>
+        ${url ? `<div class="log-url">${url}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function clearLogs() {
+  await clearSaveLogs();
+  await renderLogs();
+}
+
+function destinationLabel(destination) {
+  return {
+    getnote: 'Get',
+    feishu: '飞书',
+  }[destination] || destination || '系统';
+}
+
+function formatTime(value) {
+  return new Date(value).toLocaleString('zh-CN', { hour12: false });
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 $('save').onclick = save;
 $('login').onclick = login;
 $('logout').onclick = logout;
 $('testWorker').onclick = testWorker;
+$('refreshLogs').onclick = renderLogs;
+$('clearLogs').onclick = clearLogs;
 load();

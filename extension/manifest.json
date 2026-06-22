@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "version_name": "0.2.0-codex",
   "description": "一键把飞书文档、网页文章导入到 Get 笔记或飞书文档。",
-  "permissions": ["storage", "identity", "activeTab", "scripting"],
+  "permissions": ["storage", "identity", "activeTab", "scripting", "tabs"],
   "host_permissions": [
     "https://*.feishu.cn/*",
     "https://*.larksuite.com/*",
