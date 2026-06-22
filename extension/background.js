@@ -100,10 +100,21 @@ async function readSource({ sourceType, worker, session, url, tabId }) {
   if (sourceType === 'feishu-doc') {
     return readFeishuDocument({ worker, session, url });
   }
-  if (sourceType === 'wechat-article' || sourceType === 'service-article') {
+  if (sourceType === 'wechat-article') {
+    try {
+      return readArticleFromTab({ tabId, url, sourceType });
+    } catch (e) {
+      try {
+        return await readArticleViaExtractService({ worker, session, url });
+      } catch (fallbackError) {
+        throw new Error(`公众号正文抽取失败：${e?.message || e}；后端兜底也失败：${fallbackError?.message || fallbackError}`);
+      }
+    }
+  }
+  if (sourceType === 'service-article') {
     return readArticleViaExtractService({ worker, session, url });
   }
-  return readArticleFromTab({ tabId, url });
+  return readArticleFromTab({ tabId, url, sourceType });
 }
 
 async function saveDestinations({ cfg, content, destinations, session, force }) {

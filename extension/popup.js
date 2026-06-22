@@ -65,7 +65,7 @@ function renderActions(sourceType) {
   hideForceSave();
 
   if (sourceType === 'wechat-article') {
-    setStatus('公众号默认走后端抽取服务；如果 Worker 未配置 /api/extract，会返回明确错误。', 'run');
+    setStatus('公众号会先从当前页面抽取正文；如页面限制导致失败，再尝试后端抽取。', 'run');
   } else if (unsupported) {
     setStatus('当前页面暂不支持保存。', 'err');
   }

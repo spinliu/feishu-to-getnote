@@ -219,6 +219,7 @@ Implemented after opening draft PR #1:
 - Repeated save de-duplication for the same URL + destination, with a manual force-save button.
 - Batch save for ordinary web / WeChat tabs in the current Chrome window to Get link notes.
 - Local recent save/failure log in the settings page.
+- WeChat article single-save now uses current-tab DOM extraction first, with `/api/extract` only as a fallback. This makes `微信公众号 -> 飞书文档` independent from a configured extractor service when the article is already visible in Chrome.
 
 Validation:
 
@@ -226,12 +227,13 @@ Validation:
 find extension worker/src -name '*.js' -print0 | xargs -0 -n1 node --check
 node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8')); console.log('manifest ok')"
 node --input-type=module <mock save-state checks>
+node --input-type=module <static WeChat route checks>
 ```
 
 Remaining:
 
 1. Test and harden `飞书文档 -> Get` after the v2 routing refactor.
-2. Decide whether `/api/extract` remains an external service boundary or gets a concrete trusted extractor service URL.
+2. Decide whether `/api/extract` remains an external service boundary or gets a concrete trusted extractor service URL for DOM extraction failures.
 3. Add image preservation via upload/transfer instead of P0 image stripping.
 4. Add configurable Feishu destination folder.
 5. Add success action buttons for opening the created Feishu document and locating Get notes where supported.

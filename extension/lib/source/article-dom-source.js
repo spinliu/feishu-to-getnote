@@ -1,7 +1,8 @@
-export async function readArticleFromTab({ tabId, url }) {
+export async function readArticleFromTab({ tabId, url, sourceType = 'web-article' }) {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
     func: extractArticleFromPage,
+    args: [sourceType],
   });
   const content = result?.result;
   if (!content?.ok) {
@@ -9,17 +10,19 @@ export async function readArticleFromTab({ tabId, url }) {
   }
   return {
     ...content,
-    sourceType: 'web-article',
+    sourceType,
     sourceUrl: url || content.sourceUrl,
   };
 }
 
-function extractArticleFromPage() {
+function extractArticleFromPage(sourceType) {
   const bySelector = selector => document.querySelector(selector);
   const pickText = selector => (bySelector(selector)?.textContent || '').trim();
+  const isWeChat = sourceType === 'wechat-article' || location.hostname === 'mp.weixin.qq.com';
   const sourceUrl = location.href;
   const siteName = meta('og:site_name') || location.hostname;
   const title =
+    (isWeChat ? pickText('#activity-name') : '') ||
     meta('og:title') ||
     pickText('article h1') ||
     pickText('main h1') ||
@@ -27,25 +30,29 @@ function extractArticleFromPage() {
     document.title ||
     'Untitled';
   const author =
+    (isWeChat ? pickText('#js_name') : '') ||
     meta('author') ||
     pickText('[rel=author]') ||
     pickText('.author') ||
     pickText('.byline') ||
     '';
   const publishedAt =
+    (isWeChat ? pickText('#publish_time') : '') ||
     meta('article:published_time') ||
     bySelector('time')?.getAttribute('datetime') ||
     pickText('time') ||
     '';
 
   const root =
+    (isWeChat ? bySelector('#js_content') : null) ||
     bySelector('article') ||
     bySelector('main') ||
     largestTextBlock() ||
     document.body;
 
   const markdown = nodeToMarkdown(root).replace(/\n{3,}/g, '\n\n').trim();
-  if (!markdown || markdown.length < 80) {
+  const minLength = isWeChat ? 30 : 80;
+  if (!markdown || markdown.length < minLength) {
     return { ok: false, error: '正文太短，可能不是文章页或被页面脚本保护' };
   }
 
@@ -65,9 +72,9 @@ function extractArticleFromPage() {
     author: clean(author),
     siteName: clean(siteName),
     publishedAt: clean(publishedAt),
-    markdown: `# ${clean(title)}\n\n${markdown}\n\n> 来源：${sourceUrl}`,
+    markdown: buildMarkdown({ title, author, publishedAt, markdown, sourceUrl, isWeChat }),
     images,
-    metadata: { extraction: 'dom' },
+    metadata: { extraction: 'dom', extractor: isWeChat ? 'wechat-dom' : 'generic-dom' },
   };
 
   function meta(name) {
@@ -126,5 +133,16 @@ function extractArticleFromPage() {
 
   function clean(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function buildMarkdown(data) {
+    const parts = [`# ${clean(data.title)}`];
+    if (data.isWeChat) {
+      const byline = [clean(data.author), clean(data.publishedAt)].filter(Boolean).join(' · ');
+      if (byline) parts.push(`> ${byline}`);
+    }
+    parts.push(data.markdown);
+    parts.push(`> 来源：${data.sourceUrl}`);
+    return parts.filter(Boolean).join('\n\n');
   }
 }
