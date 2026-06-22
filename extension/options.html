@@ -30,6 +30,8 @@
   <label>Cloudflare Worker URL（一次性配，团队共用）</label>
   <input type="text" id="worker" placeholder="https://lark-doc-proxy.xxx.workers.dev">
   <div class="hint">由部署 Worker 的人提供。形如 <code>https://lark-doc-proxy.xxx.workers.dev</code>，末尾不要带斜杠。</div>
+  <button id="testWorker" class="secondary">测试 Worker / Session</button>
+  <div id="worker-status" class="status" style="display:none"></div>
 
   <h2>2. 飞书登录</h2>
   <button id="login">登录飞书</button>

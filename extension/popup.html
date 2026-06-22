@@ -4,15 +4,18 @@
   <meta charset="utf-8">
   <style>
     body { font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-           width: 320px; margin: 0; padding: 16px; color: #222; }
+           width: 340px; margin: 0; padding: 16px; color: #222; }
     .doc { margin-bottom: 12px; }
-    .doc .label { color: #888; font-size: 11px; }
-    .doc .url { word-break: break-all; font: 12px monospace; color: #333;
-                background: #f5f5f5; padding: 6px 8px; border-radius: 4px; margin-top: 4px; }
+    .label { color: #777; font-size: 11px; }
+    .source { display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 4px;
+              background: #eef4ff; color: #225; font-size: 12px; }
+    .url { word-break: break-all; font: 12px monospace; color: #333;
+           background: #f5f5f5; padding: 6px 8px; border-radius: 4px; margin-top: 6px; }
     button { width: 100%; padding: 10px; border: 0; border-radius: 4px;
-             background: #0077ff; color: white; cursor: pointer; font-size: 14px; }
+             background: #0077ff; color: white; cursor: pointer; font-size: 14px; margin-top: 8px; }
+    button.secondary { background: #f0f0f0; color: #222; }
     button:disabled { opacity: 0.5; cursor: default; }
-    .status { margin-top: 12px; padding: 8px 10px; border-radius: 4px; font-size: 12px; }
+    .status { white-space: pre-wrap; margin-top: 12px; padding: 8px 10px; border-radius: 4px; font-size: 12px; }
     .status.ok  { background: #e6f7e6; color: #1a6b1a; }
     .status.err { background: #fce8e8; color: #a33; }
     .status.run { background: #eef4ff; color: #225; }
@@ -24,9 +27,12 @@
 <body>
   <div class="doc">
     <div class="label">当前页面</div>
+    <div class="source" id="source">--</div>
     <div class="url" id="url">--</div>
   </div>
-  <button id="go">导入到 Get 笔记</button>
+  <button id="saveGet">保存到 Get 笔记</button>
+  <button id="saveFeishu" class="secondary">保存为飞书文档</button>
+  <button id="saveBoth" class="secondary">飞书 + Get 都保存</button>
   <div id="status" class="status" style="display:none"></div>
   <a class="opt" href="#" id="openOpts">设置</a>
   <script type="module" src="popup.js"></script>

@@ -2,9 +2,16 @@
 // 职责：飞书 OAuth + 文档 blocks 代拉
 // 不做：下游笔记 API（Get 笔记 / Obsidian 等由各自插件自己调）
 
-const SCOPES = ['docx:document:readonly', 'wiki:wiki:readonly'].join(' ');
+const SCOPES = [
+  'docx:document:readonly',
+  'wiki:wiki:readonly',
+  'docx:document:create',
+  'docs:document:import',
+].join(' ');
 const STATE_TTL_SEC = 600;
 const SESSION_TTL_SEC = 60 * 60 * 24 * 30; // 30 天，refresh_token 兜底
+const REFRESH_SKEW_SEC = 300;
+const refreshFlights = new Map();
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -32,7 +39,9 @@ export default {
       if (url.pathname === '/oauth/callback')return oauthCallback(req, env, url);
       if (url.pathname === '/api/doc' && req.method === 'POST') return apiDoc(req, env);
       if (url.pathname === '/api/session' && req.method === 'GET') return apiSession(req, env);
-      if (url.pathname === '/')              return json({ name: 'lark-doc-proxy', ok: true });
+      if (url.pathname === '/api/extract' && req.method === 'POST') return apiExtract(req, env);
+      if (url.pathname === '/api/feishu/doc/create' && req.method === 'POST') return apiFeishuDocCreate(req, env);
+      if (url.pathname === '/health' || url.pathname === '/') return health(env);
       return err('not_found', 404);
     } catch (e) {
       return err('internal_error', 500, { detail: String(e?.message || e) });
@@ -49,7 +58,10 @@ export default {
 async function oauthStart(req, env, url) {
   const redirect = url.searchParams.get('redirect');
   if (!redirect) return err('missing_redirect');
-  if (!redirect.startsWith(env.ALLOWED_REDIRECT_PREFIX)) return err('bad_redirect', 403);
+  if (!isAllowedRedirect(redirect, env)) return err('bad_redirect', 403);
+
+  const configError = requireFeishuOAuthConfig(env);
+  if (configError) return configError;
 
   const state = uuid();
   await env.SESSIONS.put(`state:${state}`, redirect, { expirationTtl: STATE_TTL_SEC });
@@ -67,6 +79,9 @@ async function oauthStart(req, env, url) {
 // GET /oauth/callback?code=xxx&state=xxx
 //   飞书回调到这里。用 code 换 token，存 KV，把 session_key 回带给插件 redirect。
 async function oauthCallback(req, env, url) {
+  const configError = requireFeishuOAuthConfig(env);
+  if (configError) return configError;
+
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   if (!code || !state) return err('missing_code_or_state');
@@ -112,9 +127,9 @@ async function oauthCallback(req, env, url) {
 async function apiSession(req, env) {
   const session = bearer(req);
   if (!session) return err('missing_session', 401);
-  const sess = await loadSession(env, session);
-  if (!sess) return err('session_invalid', 401);
-  return json({ ok: true });
+  const result = await ensureAccessTokenResult(env, session);
+  if (!result.ok) return err(result.error, 401, result.extra || {});
+  return json({ ok: true, expires_at: result.expires_at });
 }
 
 // ---------- 飞书文档代理 ----------
@@ -166,6 +181,141 @@ async function apiDoc(req, env) {
   return json({ title, blocks });
 }
 
+// POST /api/extract body: { url }
+// Worker 只做转发，不在边缘运行 Python/scrapling。
+async function apiExtract(req, env) {
+  if (!env.EXTRACTOR_API_URL) {
+    return err('extractor_not_configured', 501, {
+      hint: 'Configure EXTRACTOR_API_URL to a trusted article extraction service. Worker only routes requests.',
+    });
+  }
+
+  let body;
+  try { body = await req.json(); } catch { return err('bad_json'); }
+  if (!body?.url) return err('missing_url');
+
+  const headers = { 'content-type': 'application/json' };
+  if (env.EXTRACTOR_API_TOKEN) headers.authorization = `Bearer ${env.EXTRACTOR_API_TOKEN}`;
+  const resp = await fetch(env.EXTRACTOR_API_URL, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ url: body.url }),
+  });
+  const text = await resp.text();
+  return new Response(text, {
+    status: resp.status,
+    headers: {
+      'content-type': resp.headers.get('content-type') || 'application/json; charset=utf-8',
+      'access-control-allow-origin': '*',
+      'access-control-allow-headers': 'authorization, content-type',
+      'access-control-allow-methods': 'GET, POST, OPTIONS',
+    },
+  });
+}
+
+// POST /api/feishu/doc/create
+// P0: use Feishu's docs_ai import endpoint to create a Docx from Markdown.
+async function apiFeishuDocCreate(req, env) {
+  const session = bearer(req);
+  if (!session) return err('missing_session', 401);
+  const access = await ensureAccessToken(env, session);
+  if (!access) return err('session_invalid_or_expired', 401);
+
+  let body;
+  try { body = await req.json(); } catch { return err('bad_json'); }
+  if (!body?.markdown?.trim()) return err('missing_markdown');
+
+  if (!env.FEISHU_DOC_CREATE_API_URL) {
+    return createFeishuDocFromMarkdown(env, access, body);
+  }
+
+  const resp = await fetch(env.FEISHU_DOC_CREATE_API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${access}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await resp.text();
+  return new Response(text, {
+    status: resp.status,
+    headers: {
+      'content-type': resp.headers.get('content-type') || 'application/json; charset=utf-8',
+      'access-control-allow-origin': '*',
+      'access-control-allow-headers': 'authorization, content-type',
+      'access-control-allow-methods': 'GET, POST, OPTIONS',
+    },
+  });
+}
+
+async function createFeishuDocFromMarkdown(env, access, content) {
+  const body = {
+    content: buildFeishuMarkdown(content),
+    format: 'markdown',
+  };
+
+  if (content.parentToken || env.FEISHU_DOC_PARENT_TOKEN) {
+    body.parent_token = content.parentToken || env.FEISHU_DOC_PARENT_TOKEN;
+  } else if (content.parentPosition || env.FEISHU_DOC_PARENT_POSITION) {
+    body.parent_position = content.parentPosition || env.FEISHU_DOC_PARENT_POSITION;
+  }
+
+  const created = await larkPost(env, access, '/open-apis/docs_ai/v1/documents', body);
+  if (!created.ok) {
+    return err('feishu_doc_create_failed', 502, { detail: created.detail });
+  }
+
+  const doc = created.data?.data?.document || created.data?.document || created.data?.data || {};
+  const documentId = doc.document_id || doc.documentId || doc.token || created.data?.data?.document_id || '';
+  const url = doc.url || created.data?.data?.url || '';
+  if (!documentId && !url) {
+    return err('feishu_doc_create_no_document', 502, { detail: created.data });
+  }
+
+  return json({
+    ok: true,
+    title: content.title || doc.title || 'Untitled',
+    url,
+    documentId,
+    mode: 'docs_ai_markdown',
+  });
+}
+
+function buildFeishuMarkdown(content) {
+  const title = String(content.title || 'Untitled').trim() || 'Untitled';
+  let markdown = stripMarkdownImages(content.markdown);
+  if (!/^#\s+/.test(markdown)) {
+    markdown = `# ${title}\n\n${markdown}`;
+  }
+  return markdown.trim() + '\n';
+}
+
+function stripMarkdownImages(markdown) {
+  return String(markdown || '')
+    .replace(/<!--\s*image omitted[\s\S]*?-->/gi, '')
+    .replace(/<img\b[^>]*>/gi, '')
+    .replace(/!\[[^\]]*]\([^)]*\)/g, '')
+    .replace(/!\[[^\]]*]\[[^\]]*]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function health(env) {
+  return json({
+    name: 'lark-doc-proxy',
+    ok: true,
+    bindings: {
+      sessions: !!env.SESSIONS,
+      larkAppId: !!env.LARK_APP_ID,
+      larkAppSecret: !!env.LARK_APP_SECRET,
+      allowedRedirectPrefix: !!env.ALLOWED_REDIRECT_PREFIX,
+      extractorApi: !!env.EXTRACTOR_API_URL,
+      feishuDocCreateApi: !!env.FEISHU_DOC_CREATE_API_URL,
+    },
+  });
+}
+
 // ---------- 工具 ----------
 
 function bearer(req) {
@@ -185,12 +335,41 @@ async function saveSession(env, session_key, sess) {
 }
 
 async function ensureAccessToken(env, session_key) {
-  const sess = await loadSession(env, session_key);
-  if (!sess) return null;
-  const now = Math.floor(Date.now() / 1000);
-  if (now < sess.expires_at) return sess.access_token;
-  if (now >= sess.refresh_expires_at) return null;
+  const result = await ensureAccessTokenResult(env, session_key);
+  return result.ok ? result.access_token : null;
+}
 
+async function ensureAccessTokenResult(env, session_key) {
+  const sess = await loadSession(env, session_key);
+  if (!sess) return { ok: false, error: 'session_invalid' };
+  const now = Math.floor(Date.now() / 1000);
+  if (now < (sess.expires_at - REFRESH_SKEW_SEC)) {
+    return { ok: true, access_token: sess.access_token, expires_at: sess.expires_at };
+  }
+  if (now >= sess.refresh_expires_at) return { ok: false, error: 'refresh_token_expired' };
+
+  if (!refreshFlights.has(session_key)) {
+    refreshFlights.set(session_key, refreshAccessToken(env, session_key, sess, now).finally(() => {
+      refreshFlights.delete(session_key);
+    }));
+  }
+  return refreshFlights.get(session_key);
+}
+
+async function refreshAccessToken(env, session_key, sess, now) {
+  const configError = missingFeishuOAuthConfig(env);
+  if (configError) return { ok: false, error: configError };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await refreshOnce(env, session_key, sess, now);
+    if (result.ok) return result;
+    if (attempt === 0 && result.retryable) continue;
+    return result;
+  }
+  return { ok: false, error: 'refresh_failed' };
+}
+
+async function refreshOnce(env, session_key, sess, now) {
   const r = await fetch(`${env.LARK_API_BASE}/open-apis/authen/v2/oauth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -202,14 +381,21 @@ async function ensureAccessToken(env, session_key) {
     }),
   });
   const tok = await r.json();
-  if (!r.ok || tok.code) return null;
+  if (!r.ok || tok.code) {
+    return {
+      ok: false,
+      error: 'refresh_failed',
+      retryable: r.status >= 500,
+      extra: { status: r.status, detail: tok },
+    };
+  }
 
   sess.access_token = tok.access_token;
   sess.refresh_token = tok.refresh_token || sess.refresh_token;
   sess.expires_at = now + (tok.expires_in || 7200) - 60;
   if (tok.refresh_expires_in) sess.refresh_expires_at = now + tok.refresh_expires_in - 60;
   await saveSession(env, session_key, sess);
-  return sess.access_token;
+  return { ok: true, access_token: sess.access_token, expires_at: sess.expires_at };
 }
 
 async function larkGet(env, access, path) {
@@ -217,6 +403,36 @@ async function larkGet(env, access, path) {
     headers: { authorization: `Bearer ${access}` },
   });
   return r.json();
+}
+
+async function larkPost(env, access, path, body) {
+  const r = await fetch(`${env.LARK_API_BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${access}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data?.code) {
+    return { ok: false, status: r.status, detail: data };
+  }
+  return { ok: true, status: r.status, data };
+}
+
+function missingFeishuOAuthConfig(env) {
+  if (!env.LARK_APP_ID) return 'lark_app_id_not_configured';
+  if (!env.LARK_APP_SECRET) return 'lark_app_secret_not_configured';
+  return '';
+}
+
+function requireFeishuOAuthConfig(env) {
+  const missing = missingFeishuOAuthConfig(env);
+  if (!missing) return null;
+  return err(missing, 501, {
+    hint: 'Configure LARK_APP_ID and LARK_APP_SECRET as Worker secrets before using Feishu OAuth.',
+  });
 }
 
 // 支持的飞书 URL 形态：
@@ -236,5 +452,17 @@ function parseFeishuUrl(input) {
     return { kind, token: m[2] };
   } catch {
     return null;
+  }
+}
+
+function isAllowedRedirect(redirect, env) {
+  try {
+    const u = new URL(redirect);
+    if (u.protocol !== 'https:') return false;
+    if (!u.hostname.endsWith('.chromiumapp.org')) return false;
+    if (env.ALLOWED_REDIRECT_PREFIX && !redirect.startsWith(env.ALLOWED_REDIRECT_PREFIX)) return false;
+    return true;
+  } catch {
+    return false;
   }
 }

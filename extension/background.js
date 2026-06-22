@@ -1,62 +1,48 @@
-// MV3 service worker — 实际干活的地方
-import { blocksToMarkdown } from './lib/feishu-md.js';
-
-const GETNOTE_API = 'https://openapi.biji.com/open/api/v1/resource/note/save';
+import { ensureFeishuSession, getConfig } from './lib/auth-manager.js';
+import { readFeishuDocument } from './lib/source/feishu-source.js';
+import { readArticleFromTab } from './lib/source/article-dom-source.js';
+import { readArticleViaExtractService } from './lib/source/extract-service-source.js';
+import { saveToGetnote } from './lib/destination/getnote-destination.js';
+import { saveToFeishuDoc } from './lib/destination/feishu-destination.js';
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== 'import') return false;
-  handleImport(msg.url).then(sendResponse).catch(e =>
+  if (msg?.type !== 'save') return false;
+  handleSave(msg).then(sendResponse).catch(e =>
     sendResponse({ ok: false, error: e?.message || String(e) })
   );
-  return true; // 异步响应
+  return true;
 });
 
-async function handleImport(url) {
-  const cfg = await chrome.storage.local.get(['worker', 'getKey', 'getCid', 'feishuSession']);
-  if (!cfg.worker) return { ok: false, error: '未配置 Worker URL（请到设置页填）' };
-  if (!cfg.feishuSession) return { ok: false, error: '未登录飞书（请到设置页登录）' };
-  if (!cfg.getKey || !cfg.getCid) return { ok: false, error: '未配置 Get 笔记 API Key（请到设置页填）' };
+async function handleSave(msg) {
+  const cfg = await getConfig();
+  const destinations = Array.isArray(msg.destinations) ? msg.destinations : ['getnote'];
+  const needsFeishu = msg.sourceType === 'feishu-doc' || destinations.includes('feishu');
+  const session = needsFeishu ? await ensureFeishuSession({ interactive: true }) : cfg.feishuSession;
 
-  // 1. 拉飞书 blocks
-  const docResp = await fetch(`${cfg.worker}/api/doc`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${cfg.feishuSession}`,
-    },
-    body: JSON.stringify({ url }),
+  const content = await readSource({
+    ...msg,
+    worker: cfg.worker,
+    session,
   });
-  const docJson = await docResp.json();
-  if (!docResp.ok) {
-    if (docResp.status === 401) {
-      return { ok: false, error: 'session 失效，请到设置页重新登录飞书' };
-    }
-    return { ok: false, error: `飞书拉取失败：${docJson.error || docResp.status}` };
+
+  const results = {};
+  if (destinations.includes('getnote')) {
+    results.getnote = await saveToGetnote({ getKey: cfg.getKey, getCid: cfg.getCid, content });
+  }
+  if (destinations.includes('feishu')) {
+    const feishuSession = session || await ensureFeishuSession({ interactive: true });
+    results.feishu = await saveToFeishuDoc({ worker: cfg.worker, session: feishuSession, content });
   }
 
-  // 2. blocks → markdown
-  const md = blocksToMarkdown(docJson.blocks || []);
-  if (!md.trim()) return { ok: false, error: '文档内容为空' };
+  return { ok: true, title: content.title, sourceType: content.sourceType, results };
+}
 
-  // 3. 写 Get 笔记
-  const noteResp = await fetch(GETNOTE_API, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      authorization: cfg.getKey,
-      'x-client-id': cfg.getCid,
-    },
-    body: JSON.stringify({
-      note_type: 'plain_text',
-      title: docJson.title || '未命名飞书文档',
-      content: md,
-      tags: ['from-feishu'],
-    }),
-  });
-  const noteJson = await noteResp.json();
-  if (!noteResp.ok || !noteJson?.success) {
-    return { ok: false, error: `Get 笔记写入失败：${noteJson?.error?.message || noteResp.status}` };
+async function readSource({ sourceType, worker, session, url, tabId }) {
+  if (sourceType === 'feishu-doc') {
+    return readFeishuDocument({ worker, session, url });
   }
-
-  return { ok: true, title: docJson.title, noteId: noteJson?.data?.note_id };
+  if (sourceType === 'wechat-article' || sourceType === 'service-article') {
+    return readArticleViaExtractService({ worker, session, url });
+  }
+  return readArticleFromTab({ tabId, url });
 }
