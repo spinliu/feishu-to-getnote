@@ -11,6 +11,8 @@ const SCOPES = [
 const STATE_TTL_SEC = 600;
 const SESSION_TTL_SEC = 60 * 60 * 24 * 30; // 30 天，refresh_token 兜底
 const REFRESH_SKEW_SEC = 300;
+const FEISHU_IMAGE_LIMIT = 20;
+const IMAGE_ANCHOR_PREFIX = 'ZylosImageAnchor';
 const refreshFlights = new Map();
 
 const json = (data, status = 200) =>
@@ -250,8 +252,9 @@ async function apiFeishuDocCreate(req, env) {
 }
 
 async function createFeishuDocFromMarkdown(env, access, content) {
+  const prepared = buildFeishuMarkdown(content);
   const body = {
-    content: buildFeishuMarkdown(content),
+    content: prepared.markdown,
     format: 'markdown',
   };
 
@@ -279,7 +282,7 @@ async function createFeishuDocFromMarkdown(env, access, content) {
   }
 
   const imageTransfer = documentId
-    ? await insertFeishuImages(env, access, documentId, content.images)
+    ? await insertFeishuImages(env, access, documentId, prepared.images)
     : { attempted: 0, inserted: 0, failed: 0, errors: ['missing_document_id'] };
 
   return json({
@@ -294,32 +297,72 @@ async function createFeishuDocFromMarkdown(env, access, content) {
 
 function buildFeishuMarkdown(content) {
   const title = String(content.title || 'Untitled').trim() || 'Untitled';
-  let markdown = stripMarkdownImages(content.markdown);
+  const prepared = prepareMarkdownImages(content.markdown, content.images);
+  let markdown = prepared.markdown;
   if (!/^#\s+/.test(markdown)) {
     markdown = `# ${title}\n\n${markdown}`;
   }
-  return markdown.trim() + '\n';
+  return {
+    markdown: markdown.trim() + '\n',
+    images: prepared.images,
+  };
 }
 
-function stripMarkdownImages(markdown) {
-  return String(markdown || '')
+function prepareMarkdownImages(markdown, imageCandidates) {
+  const seen = new Set();
+  const images = [];
+  const input = String(markdown || '')
     .replace(/<!--\s*image omitted[\s\S]*?-->/gi, '')
-    .replace(/<img\b[^>]*>/gi, '')
-    .replace(/!\[[^\]]*]\([^)]*\)/g, '')
-    .replace(/!\[[^\]]*]\[[^\]]*]/g, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .replace(/!\[[^\]]*]\[[^\]]*]/g, '');
+  const output = input.replace(
+    /!\[([^\]]*)]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)|<img\b[^>]*>/gi,
+    (match, markdownAlt, markdownSrc) => {
+      const html = match.startsWith('<') ? parseHtmlImage(match) : null;
+      const src = normalizeImageUrl(markdownSrc || html?.src || '');
+      if (!src || seen.has(src)) return '';
+      seen.add(src);
+      if (images.length >= FEISHU_IMAGE_LIMIT) return '';
+      const image = {
+        src,
+        alt: String(markdownAlt || html?.alt || '').trim(),
+        marker: imageAnchor(images.length + 1, src),
+      };
+      images.push(image);
+      return `\n\n${image.marker}\n\n`;
+    }
+  );
+
+  for (const image of normalizeImageList(imageCandidates)) {
+    if (images.length >= FEISHU_IMAGE_LIMIT) break;
+    if (seen.has(image.src)) continue;
+    seen.add(image.src);
+    images.push(image);
+  }
+
+  return {
+    markdown: output.replace(/\n{3,}/g, '\n\n').trim(),
+    images,
+  };
 }
 
 async function insertFeishuImages(env, access, documentId, images) {
-  const normalized = normalizeImageList(images).slice(0, 20);
+  const normalized = normalizeImageList(images).slice(0, FEISHU_IMAGE_LIMIT);
   if (!normalized.length) return { attempted: 0, inserted: 0, failed: 0, errors: [] };
 
+  const anchorMarkers = normalized.map(image => image.marker).filter(Boolean);
+  const anchorBlocks = anchorMarkers.length
+    ? await findImageAnchorBlocks(env, access, documentId, anchorMarkers)
+    : new Map();
   const errors = [];
   let inserted = 0;
+  let positioned = 0;
+  let appended = 0;
+  const cleanupBlockIds = [];
+
   for (const image of normalized) {
+    const anchorBlockId = image.marker ? anchorBlocks.get(image.marker) : '';
     const result = await larkPut(env, access, `/open-apis/docs_ai/v1/documents/${documentId}`, {
-      block_id: '-1',
+      block_id: anchorBlockId || '-1',
       command: 'block_insert_after',
       content: buildImageXml(image),
       format: 'xml',
@@ -327,14 +370,31 @@ async function insertFeishuImages(env, access, documentId, images) {
     });
     if (result.ok) {
       inserted++;
+      if (anchorBlockId) {
+        positioned++;
+        cleanupBlockIds.push(anchorBlockId);
+      } else {
+        appended++;
+      }
     } else {
       errors.push(`${image.src}: ${summarizeFeishuError(result.detail)}`);
     }
   }
 
+  const cleanup = await cleanupImageAnchors(
+    env,
+    access,
+    documentId,
+    cleanupBlockIds,
+    normalized.map(image => image.marker).filter(Boolean)
+  );
+  if (cleanup.error) errors.push(cleanup.error);
+
   return {
     attempted: normalized.length,
     inserted,
+    positioned,
+    appended,
     failed: normalized.length - inserted,
     errors: errors.slice(0, 5),
   };
@@ -347,7 +407,11 @@ function normalizeImageList(images) {
     const src = normalizeImageUrl(image?.src || image?.url || image);
     if (!src || seen.has(src)) continue;
     seen.add(src);
-    out.push({ src, alt: String(image?.alt || '').trim() });
+    out.push({
+      src,
+      alt: String(image?.alt || '').trim(),
+      marker: String(image?.marker || '').trim(),
+    });
   }
   return out;
 }
@@ -368,6 +432,118 @@ function buildImageXml(image) {
   const items = [`<img href="${escapeXml(image.src)}"/>`];
   if (image.alt) items.push(`<p>${escapeXml(image.alt)}</p>`);
   return items.join('\n');
+}
+
+function parseHtmlImage(value) {
+  const src = attrOf(value, 'src') || attrOf(value, 'href');
+  const alt = attrOf(value, 'alt');
+  return { src, alt };
+}
+
+function attrOf(value, name) {
+  const match = String(value || '').match(new RegExp(`\\b${name}\\s*=\\s*(['"])(.*?)\\1`, 'i'));
+  return match?.[2] || '';
+}
+
+function imageAnchor(index, src) {
+  return `${IMAGE_ANCHOR_PREFIX}:${index}:${hashString(src)}`;
+}
+
+async function findImageAnchorBlocks(env, access, documentId, markers) {
+  const wanted = new Set(markers);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const blocks = await fetchDocumentBlocks(env, access, documentId).catch(() => []);
+    const found = new Map();
+    for (const block of blocks) {
+      const text = blockText(block);
+      for (const marker of wanted) {
+        if (!found.has(marker) && text.includes(marker)) {
+          found.set(marker, block.block_id);
+        }
+      }
+    }
+    if (found.size === wanted.size || attempt === 3) return found;
+    await sleep(250 * (attempt + 1));
+  }
+  return new Map();
+}
+
+async function fetchDocumentBlocks(env, access, documentId) {
+  const blocks = [];
+  let pageToken = '';
+  for (let i = 0; i < 20; i++) {
+    const qs = new URLSearchParams({ page_size: '500' });
+    if (pageToken) qs.set('page_token', pageToken);
+    const page = await larkGet(env, access, `/open-apis/docx/v1/documents/${documentId}/blocks?${qs}`);
+    if (page?.code) throw new Error(summarizeFeishuError(page));
+    blocks.push(...(page?.data?.items || []));
+    if (!page?.data?.has_more) break;
+    pageToken = page.data.page_token || '';
+    if (!pageToken) break;
+  }
+  return blocks;
+}
+
+async function cleanupImageAnchors(env, access, documentId, blockIds, markers) {
+  const uniqueBlockIds = [...new Set(blockIds.filter(Boolean))];
+  const uniqueMarkers = [...new Set(markers.filter(Boolean))];
+  let error = '';
+
+  if (uniqueBlockIds.length) {
+    const result = await larkPut(env, access, `/open-apis/docs_ai/v1/documents/${documentId}`, {
+      block_id: uniqueBlockIds.join(','),
+      command: 'block_delete',
+      format: 'xml',
+      revision_id: -1,
+    });
+    if (!result.ok) {
+      error = `image_anchor_delete_failed: ${summarizeFeishuError(result.detail)}`;
+    }
+  }
+
+  for (const marker of uniqueMarkers) {
+    await larkPut(env, access, `/open-apis/docs_ai/v1/documents/${documentId}`, {
+      command: 'str_replace',
+      pattern: marker,
+      content: '',
+      format: 'xml',
+      revision_id: -1,
+    });
+  }
+
+  return { error };
+}
+
+function blockText(block) {
+  const fields = [
+    'text', 'bullet', 'ordered', 'code', 'quote', 'todo', 'callout',
+    'heading1', 'heading2', 'heading3', 'heading4', 'heading5',
+    'heading6', 'heading7', 'heading8', 'heading9',
+  ];
+  return fields.map(field => textNodeText(block?.[field])).join('');
+}
+
+function textNodeText(node) {
+  const elements = node?.elements || [];
+  return elements.map(element => {
+    if (element.text_run) return element.text_run.content || '';
+    if (element.equation) return element.equation.content || '';
+    if (element.mention_doc) return element.mention_doc.title || '';
+    if (element.mention_user) return element.mention_user.user_id || '';
+    return '';
+  }).join('');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function hashString(value) {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function escapeXml(value) {

@@ -173,9 +173,14 @@ function imageTransferText(imageTransfer) {
   if (!attempted) return '图片：未发现可转存图片';
   const inserted = imageTransfer.inserted || 0;
   const failed = imageTransfer.failed || 0;
+  const positioned = imageTransfer.positioned || 0;
+  const appended = imageTransfer.appended || 0;
+  const placement = positioned || appended
+    ? `，随文 ${positioned}${appended ? `，文末 ${appended}` : ''}`
+    : '';
   return failed
-    ? `图片：已插入 ${inserted}/${attempted}，失败 ${failed}`
-    : `图片：已插入 ${inserted}/${attempted}`;
+    ? `图片：已插入 ${inserted}/${attempted}${placement}，失败 ${failed}`
+    : `图片：已插入 ${inserted}/${attempted}${placement}`;
 }
 
 function batchText(res) {

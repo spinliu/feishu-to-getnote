@@ -222,7 +222,7 @@ Implemented after opening draft PR #1:
 - WeChat article single-save now uses current-tab DOM extraction first, with `/api/extract` only as a fallback. This makes `微信公众号 -> 飞书文档` independent from a configured extractor service when the article is already visible in Chrome.
 - WeChat DOM formatting now treats `section` / `div` / `p` nodes as Markdown paragraphs and normalizes blank lines so imported Feishu docs are easier to read.
 - Feishu duplicate detection now checks whether the historical Docx URL/token is still readable. If it has been deleted or is no longer readable, the local history entry is removed and the document is saved again.
-- Article image transfer now extracts image URLs from the current page, prefers WeChat `data-src`, de-duplicates them, and appends up to 20 images to the created Feishu Docx via native image blocks.
+- Article image transfer now extracts image URLs from the current page, prefers WeChat `data-src`, de-duplicates them, and inserts up to 20 images into the created Feishu Docx as native image blocks near their original Markdown positions.
 
 Validation:
 
