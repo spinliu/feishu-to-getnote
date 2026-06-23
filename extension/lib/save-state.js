@@ -29,6 +29,12 @@ export async function recordSave({ sourceUrl, sourceType, title, destination, re
   await saveHistory(pruneHistory(history));
 }
 
+export async function removeSaveRecord({ sourceUrl, destination }) {
+  const history = await loadHistory();
+  delete history[historyKey(sourceUrl, destination)];
+  await saveHistory(history);
+}
+
 export async function appendSaveLog(entry) {
   const logs = await listSaveLogs();
   logs.unshift({

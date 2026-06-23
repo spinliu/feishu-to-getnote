@@ -4,7 +4,7 @@ import { readArticleFromTab } from './lib/source/article-dom-source.js';
 import { readArticleViaExtractService } from './lib/source/extract-service-source.js';
 import { saveToGetnote } from './lib/destination/getnote-destination.js';
 import { saveToFeishuDoc } from './lib/destination/feishu-destination.js';
-import { appendSaveLog, findSaveRecord, recordSave } from './lib/save-state.js';
+import { appendSaveLog, findSaveRecord, recordSave, removeSaveRecord } from './lib/save-state.js';
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!['save', 'batchSave'].includes(msg?.type)) return false;
@@ -124,14 +124,27 @@ async function saveDestinations({ cfg, content, destinations, session, force }) 
   for (const destination of destinations) {
     const duplicate = force ? null : await safeFindSaveRecord({ sourceUrl: content.sourceUrl, destination });
     if (duplicate) {
-      results[destination] = {
-        ok: true,
-        skipped: true,
-        duplicate: true,
-        savedAt: duplicate.savedAt,
-        ...duplicate.result,
-      };
-      continue;
+      const stale = await isStaleDuplicate({ cfg, session, destination, record: duplicate });
+      if (!stale) {
+        results[destination] = {
+          ok: true,
+          skipped: true,
+          duplicate: true,
+          savedAt: duplicate.savedAt,
+          ...duplicate.result,
+        };
+        continue;
+      }
+      await safeRemoveSaveRecord({ sourceUrl: content.sourceUrl, destination });
+      await safeAppendSaveLog({
+        level: 'info',
+        action: 'dedupe',
+        destination,
+        sourceUrl: content.sourceUrl,
+        sourceType: content.sourceType,
+        title: content.title,
+        message: '历史保存记录已失效，自动重新保存',
+      });
     }
 
     try {
@@ -182,6 +195,26 @@ async function saveDestination({ cfg, content, destination, session }) {
   throw new Error(`未知保存目标：${destination}`);
 }
 
+async function isStaleDuplicate({ cfg, session, destination, record }) {
+  if (destination !== 'feishu') return false;
+  const target = record?.result?.url || record?.result?.documentId;
+  if (!cfg.worker || !session || !target) return false;
+
+  try {
+    const resp = await fetch(`${cfg.worker}/api/doc`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${session}`,
+      },
+      body: JSON.stringify({ url: target }),
+    });
+    return !resp.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function safeFindSaveRecord(input) {
   try {
     return await findSaveRecord(input);
@@ -195,6 +228,14 @@ async function safeRecordSave(input) {
     await recordSave(input);
   } catch {
     // History is an optimization; a failed write must not turn a real save into failure.
+  }
+}
+
+async function safeRemoveSaveRecord(input) {
+  try {
+    await removeSaveRecord(input);
+  } catch {
+    // A stale history entry should not block a real save attempt.
   }
 }
 
