@@ -21,5 +21,6 @@ export async function saveToFeishuDoc({ worker, session, content }) {
     url: json.url,
     documentId: json.documentId,
     mode: json.mode,
+    imageTransfer: json.imageTransfer || null,
   };
 }

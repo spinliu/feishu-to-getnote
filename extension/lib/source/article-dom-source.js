@@ -58,11 +58,12 @@ function extractArticleFromPage(sourceType) {
 
   const images = Array.from(root.querySelectorAll('img'))
     .map(img => ({
-      src: img.currentSrc || img.src || img.getAttribute('data-src') || '',
+      src: imageSrc(img),
       alt: img.alt || '',
       kind: 'inline',
     }))
     .filter(img => img.src)
+    .filter((img, index, all) => all.findIndex(other => other.src === img.src) === index)
     .slice(0, 30);
 
   return {
@@ -117,7 +118,7 @@ function extractArticleFromPage(sourceType) {
       return node.href ? `[${label}](${node.href})` : label;
     }
     if (tag === 'img') {
-      const src = node.currentSrc || node.src || node.getAttribute('data-src') || '';
+      const src = imageSrc(node);
       if (!src) return '';
       return `\n\n![${clean(node.alt || '')}](${src})\n\n`;
     }
@@ -163,6 +164,18 @@ function extractArticleFromPage(sourceType) {
 
   function isNoiseParagraph(value) {
     return /^(?:[\s·•—_\-–|｜]+|阅读全文|继续滑动看下一个)$/i.test(value);
+  }
+
+  function imageSrc(img) {
+    const raw = isWeChat
+      ? (img.getAttribute('data-src') || img.currentSrc || img.src || '')
+      : (img.currentSrc || img.src || img.getAttribute('data-src') || '');
+    if (!raw || raw.startsWith('data:') || raw.startsWith('blob:')) return '';
+    try {
+      return new URL(raw, location.href).toString();
+    } catch {
+      return '';
+    }
   }
 
   function buildMarkdown(data) {

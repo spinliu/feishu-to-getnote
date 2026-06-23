@@ -122,7 +122,7 @@ Implementation update:
 - Worker `/api/feishu/doc/create` now has a built-in path and no longer requires `FEISHU_DOC_CREATE_API_URL`.
 - The built-in path calls `POST /open-apis/docs_ai/v1/documents` with `{ content, format: "markdown" }`.
 - OAuth scope list now includes `docx:document:create` and `docs:document:import` in addition to the existing read scopes.
-- Markdown image syntax is stripped before import for P0 stability; image preservation remains a later media-upload task.
+- Markdown image syntax is stripped from the text import for stability. Article images are handled separately after document creation and appended as Feishu native image blocks.
 - Extension Feishu destination now requires a returned document URL or `documentId` before showing success.
 
 Local mock validation passed:
@@ -222,6 +222,7 @@ Implemented after opening draft PR #1:
 - WeChat article single-save now uses current-tab DOM extraction first, with `/api/extract` only as a fallback. This makes `微信公众号 -> 飞书文档` independent from a configured extractor service when the article is already visible in Chrome.
 - WeChat DOM formatting now treats `section` / `div` / `p` nodes as Markdown paragraphs and normalizes blank lines so imported Feishu docs are easier to read.
 - Feishu duplicate detection now checks whether the historical Docx URL/token is still readable. If it has been deleted or is no longer readable, the local history entry is removed and the document is saved again.
+- Article image transfer now extracts image URLs from the current page, prefers WeChat `data-src`, de-duplicates them, and appends up to 20 images to the created Feishu Docx via native image blocks.
 
 Validation:
 
@@ -232,12 +233,13 @@ node --input-type=module <mock save-state checks>
 node --input-type=module <static WeChat route checks>
 node --input-type=module <static WeChat formatting checks>
 node --input-type=module <static Feishu stale duplicate checks>
+node --input-type=module <static Feishu image transfer checks>
 ```
 
 Remaining:
 
 1. Test and harden `飞书文档 -> Get` after the v2 routing refactor.
 2. Decide whether `/api/extract` remains an external service boundary or gets a concrete trusted extractor service URL for DOM extraction failures.
-3. Add image preservation via upload/transfer instead of P0 image stripping.
+3. Harden image transfer for anti-hotlink sources that cannot be imported by Feishu from URL alone.
 4. Add configurable Feishu destination folder.
 5. Add success action buttons for opening the created Feishu document and locating Get notes where supported.

@@ -143,6 +143,7 @@ function successText(res) {
     parts.push(feishu.skipped ? `飞书：已保存过` : `飞书：已保存`);
     if (feishu.url) parts.push(feishu.url);
     if (!feishu.url && feishu.documentId) parts.push(`Feishu documentId：${feishu.documentId}`);
+    if (feishu.imageTransfer) parts.push(imageTransferText(feishu.imageTransfer));
     if (feishu.skipped && feishu.savedAt) parts.push(`飞书保存时间：${formatTime(feishu.savedAt)}`);
   }
   if (res.results?.getnote) {
@@ -165,6 +166,16 @@ function failureText(res) {
   const saved = successText(res).split('\n').slice(1);
   if (saved.length) parts.push(...saved);
   return parts.join('\n');
+}
+
+function imageTransferText(imageTransfer) {
+  const attempted = imageTransfer.attempted || 0;
+  if (!attempted) return '图片：未发现可转存图片';
+  const inserted = imageTransfer.inserted || 0;
+  const failed = imageTransfer.failed || 0;
+  return failed
+    ? `图片：已插入 ${inserted}/${attempted}，失败 ${failed}`
+    : `图片：已插入 ${inserted}/${attempted}`;
 }
 
 function batchText(res) {

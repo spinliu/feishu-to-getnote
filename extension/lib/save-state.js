@@ -67,6 +67,7 @@ function compactResult(result) {
     mode: result.mode || '',
     url: result.url || '',
     documentId: result.documentId || '',
+    imageTransfer: result.imageTransfer || null,
   };
 }
 

@@ -267,11 +267,20 @@ async function createFeishuDocFromMarkdown(env, access, content) {
   }
 
   const doc = created.data?.data?.document || created.data?.document || created.data?.data || {};
-  const documentId = doc.document_id || doc.documentId || doc.token || created.data?.data?.document_id || '';
   const url = doc.url || created.data?.data?.url || '';
+  const documentId =
+    doc.document_id ||
+    doc.documentId ||
+    doc.token ||
+    created.data?.data?.document_id ||
+    parseDocumentId(url);
   if (!documentId && !url) {
     return err('feishu_doc_create_no_document', 502, { detail: created.data });
   }
+
+  const imageTransfer = documentId
+    ? await insertFeishuImages(env, access, documentId, content.images)
+    : { attempted: 0, inserted: 0, failed: 0, errors: ['missing_document_id'] };
 
   return json({
     ok: true,
@@ -279,6 +288,7 @@ async function createFeishuDocFromMarkdown(env, access, content) {
     url,
     documentId,
     mode: 'docs_ai_markdown',
+    imageTransfer,
   });
 }
 
@@ -299,6 +309,84 @@ function stripMarkdownImages(markdown) {
     .replace(/!\[[^\]]*]\[[^\]]*]/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+async function insertFeishuImages(env, access, documentId, images) {
+  const normalized = normalizeImageList(images).slice(0, 20);
+  if (!normalized.length) return { attempted: 0, inserted: 0, failed: 0, errors: [] };
+
+  const errors = [];
+  let inserted = 0;
+  for (const image of normalized) {
+    const result = await larkPut(env, access, `/open-apis/docs_ai/v1/documents/${documentId}`, {
+      block_id: '-1',
+      command: 'block_insert_after',
+      content: buildImageXml(image),
+      format: 'xml',
+      revision_id: -1,
+    });
+    if (result.ok) {
+      inserted++;
+    } else {
+      errors.push(`${image.src}: ${summarizeFeishuError(result.detail)}`);
+    }
+  }
+
+  return {
+    attempted: normalized.length,
+    inserted,
+    failed: normalized.length - inserted,
+    errors: errors.slice(0, 5),
+  };
+}
+
+function normalizeImageList(images) {
+  const seen = new Set();
+  const out = [];
+  for (const image of Array.isArray(images) ? images : []) {
+    const src = normalizeImageUrl(image?.src || image?.url || image);
+    if (!src || seen.has(src)) continue;
+    seen.add(src);
+    out.push({ src, alt: String(image?.alt || '').trim() });
+  }
+  return out;
+}
+
+function normalizeImageUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw.startsWith('data:') || raw.startsWith('blob:')) return '';
+  try {
+    const url = new URL(raw);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function buildImageXml(image) {
+  const items = [`<img href="${escapeXml(image.src)}"/>`];
+  if (image.alt) items.push(`<p>${escapeXml(image.alt)}</p>`);
+  return items.join('\n');
+}
+
+function escapeXml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function parseDocumentId(url) {
+  const parsed = parseFeishuUrl(url);
+  return parsed?.kind === 'docx' ? parsed.token : '';
+}
+
+function summarizeFeishuError(detail) {
+  if (!detail) return 'unknown_error';
+  return detail.msg || detail.message || detail.error || JSON.stringify(detail).slice(0, 500);
 }
 
 function health(env) {
@@ -408,6 +496,22 @@ async function larkGet(env, access, path) {
 async function larkPost(env, access, path, body) {
   const r = await fetch(`${env.LARK_API_BASE}${path}`, {
     method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${access}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data?.code) {
+    return { ok: false, status: r.status, detail: data };
+  }
+  return { ok: true, status: r.status, data };
+}
+
+async function larkPut(env, access, path, body) {
+  const r = await fetch(`${env.LARK_API_BASE}${path}`, {
+    method: 'PUT',
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${access}`,
