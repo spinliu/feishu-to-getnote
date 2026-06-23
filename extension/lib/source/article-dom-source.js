@@ -50,7 +50,7 @@ function extractArticleFromPage(sourceType) {
     largestTextBlock() ||
     document.body;
 
-  const markdown = nodeToMarkdown(root).replace(/\n{3,}/g, '\n\n').trim();
+  const markdown = normalizeMarkdown(nodeToMarkdown(root));
   const minLength = isWeChat ? 30 : 80;
   if (!markdown || markdown.length < minLength) {
     return { ok: false, error: '正文太短，可能不是文章页或被页面脚本保护' };
@@ -99,15 +99,15 @@ function extractArticleFromPage(sourceType) {
     const tag = node.tagName.toLowerCase();
     if (['script', 'style', 'noscript', 'nav', 'footer', 'header', 'aside', 'form', 'button'].includes(tag)) return '';
 
-    const text = () => Array.from(node.childNodes).map(nodeToMarkdown).join('').trim();
+    const text = () => normalizeInline(Array.from(node.childNodes).map(nodeToMarkdown).join(''));
 
     if (/h[1-6]/.test(tag)) {
       const level = Number(tag[1]);
       return `\n\n${'#'.repeat(level)} ${clean(node.innerText)}\n\n`;
     }
-    if (tag === 'p') return `\n\n${text()}\n\n`;
+    if (['p', 'div', 'section'].includes(tag)) return paragraph(text());
     if (tag === 'br') return '\n';
-    if (tag === 'blockquote') return `\n\n> ${clean(node.innerText).replace(/\n/g, '\n> ')}\n\n`;
+    if (tag === 'blockquote') return `\n\n> ${normalizeInline(node.innerText).replace(/\n/g, '\n> ')}\n\n`;
     if (tag === 'pre') return `\n\n\`\`\`\n${node.innerText.trim()}\n\`\`\`\n\n`;
     if (tag === 'code') return `\`${clean(node.innerText)}\``;
     if (tag === 'strong' || tag === 'b') return `**${text()}**`;
@@ -133,6 +133,36 @@ function extractArticleFromPage(sourceType) {
 
   function clean(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function paragraph(value) {
+    const textValue = normalizeInline(value);
+    if (!textValue || isNoiseParagraph(textValue)) return '';
+    return `\n\n${textValue}\n\n`;
+  }
+
+  function normalizeInline(value) {
+    return String(value || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n[ \t]+/g, '\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function normalizeMarkdown(value) {
+    return String(value || '')
+      .split('\n')
+      .map(line => line.replace(/[ \t]+$/g, ''))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/([^\n])\n(#{1,6}\s+)/g, '$1\n\n$2')
+      .trim();
+  }
+
+  function isNoiseParagraph(value) {
+    return /^(?:[\s·•—_\-–|｜]+|阅读全文|继续滑动看下一个)$/i.test(value);
   }
 
   function buildMarkdown(data) {

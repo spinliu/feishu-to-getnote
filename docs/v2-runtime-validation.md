@@ -220,6 +220,7 @@ Implemented after opening draft PR #1:
 - Batch save for ordinary web / WeChat tabs in the current Chrome window to Get link notes.
 - Local recent save/failure log in the settings page.
 - WeChat article single-save now uses current-tab DOM extraction first, with `/api/extract` only as a fallback. This makes `微信公众号 -> 飞书文档` independent from a configured extractor service when the article is already visible in Chrome.
+- WeChat DOM formatting now treats `section` / `div` / `p` nodes as Markdown paragraphs and normalizes blank lines so imported Feishu docs are easier to read.
 
 Validation:
 
@@ -228,6 +229,7 @@ find extension worker/src -name '*.js' -print0 | xargs -0 -n1 node --check
 node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8')); console.log('manifest ok')"
 node --input-type=module <mock save-state checks>
 node --input-type=module <static WeChat route checks>
+node --input-type=module <static WeChat formatting checks>
 ```
 
 Remaining:
