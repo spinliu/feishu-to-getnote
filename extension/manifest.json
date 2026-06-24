@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Feishu → Get 笔记",
-  "version": "0.1.0",
-  "description": "一键把飞书文档导入到 Get 笔记。",
-  "permissions": ["storage", "identity", "activeTab"],
+  "version": "0.2.0",
+  "version_name": "0.2.0-codex",
+  "description": "一键把飞书文档、网页文章导入到 Get 笔记或飞书文档。",
+  "permissions": ["storage", "identity", "activeTab", "scripting", "tabs"],
   "host_permissions": [
     "https://*.feishu.cn/*",
     "https://*.larksuite.com/*",
@@ -15,7 +16,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "导入到 Get 笔记",
+    "default_title": "保存到 Get / 飞书",
     "default_icon": {
       "16": "icons/icon128.png",
       "48": "icons/icon128.png",

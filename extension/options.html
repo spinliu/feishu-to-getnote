@@ -21,6 +21,14 @@
     .status.ok  { background: #e6f7e6; color: #1a6b1a; }
     .status.err { background: #fce8e8; color: #a33; }
     .hint { color: #888; font-size: 12px; margin-top: 4px; }
+    .logs { margin-top: 8px; border: 1px solid #eee; border-radius: 4px; overflow: hidden; }
+    .log { padding: 8px 10px; border-top: 1px solid #eee; font-size: 12px; }
+    .log:first-child { border-top: 0; }
+    .log.error { background: #fff8f8; color: #8a2222; }
+    .log.success { background: #f7fff7; color: #225a22; }
+    .log-title { font-weight: 600; color: inherit; }
+    .log-meta { color: #777; margin-top: 2px; }
+    .log-url { word-break: break-all; color: #777; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -30,6 +38,8 @@
   <label>Cloudflare Worker URL（一次性配，团队共用）</label>
   <input type="text" id="worker" placeholder="https://lark-doc-proxy.xxx.workers.dev">
   <div class="hint">由部署 Worker 的人提供。形如 <code>https://lark-doc-proxy.xxx.workers.dev</code>，末尾不要带斜杠。</div>
+  <button id="testWorker" class="secondary">测试 Worker / Session</button>
+  <div id="worker-status" class="status" style="display:none"></div>
 
   <h2>2. 飞书登录</h2>
   <button id="login">登录飞书</button>
@@ -47,6 +57,11 @@
     <button id="save">保存</button>
     <span id="save-status" class="status" style="display:none"></span>
   </div>
+
+  <h2>4. 最近保存记录</h2>
+  <button id="refreshLogs" class="secondary">刷新记录</button>
+  <button id="clearLogs" class="secondary">清空记录</button>
+  <div id="logs" class="logs"></div>
 
   <script type="module" src="options.js"></script>
 </body>

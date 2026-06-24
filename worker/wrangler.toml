@@ -1,6 +1,7 @@
 name = "lark-doc-proxy"
 main = "src/index.js"
 compatibility_date = "2025-09-01"
+account_id = "a7b896d66cd854776cccae45623777b5"
 
 # KV: session_key -> { access_token, refresh_token, expires_at, refresh_expires_at }
 # 也用同一个 namespace 暂存 OAuth state（10 分钟 TTL）
